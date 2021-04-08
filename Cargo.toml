@@ -1,0 +1,18 @@
+[package]
+name = "untitled1"
+version = "0.1.0"
+authors = ["chop0 <chop@quenda.net>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serenity = { path = "serenity", default-features = false, features = ["builder", "cache", "client", "framework", "gateway", "model", "http", "standard_framework", "utils", "rustls_backend"] }
+toml = "0.5.8"
+serde = "1.0.125"
+futures = "0.3.13"
+diesel = { version = "1.4.6", features = ["postgres", "numeric", "bigdecimal"] }
+fancy-regex = "0.5.0"
+lazy_static = "1.4.0"
+dotenv = "0.15.0"
+bigdecimal = "0.1.2"
