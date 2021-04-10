@@ -2,7 +2,7 @@ table! {
     guilds (snowflake) {
         snowflake -> Numeric,
         title -> Nullable<Text>,
-        invite_codes -> Nullable<Array<Text>>,
+        parent_invite -> Nullable<Text>,
     }
 }
 
@@ -11,6 +11,8 @@ table! {
         invite_code -> Text,
         origin_message_snowflake -> Numeric,
         guild_snowflake -> Nullable<Numeric>,
+        queued -> Bool,
+        recursion_level -> Int2,
     }
 }
 
@@ -34,9 +36,4 @@ table! {
     }
 }
 
-allow_tables_to_appear_in_same_query!(
-    guilds,
-    invites,
-    messages,
-    users,
-);
+allow_tables_to_appear_in_same_query!(guilds, invites, messages, users,);
