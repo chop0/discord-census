@@ -1,5 +1,8 @@
+use rand::Rng;
 use serde::Deserialize;
 use std::env;
+use std::time::Duration;
+use tokio::time::sleep;
 
 use crate::util::deserialize_number_from_string;
 
@@ -13,6 +16,14 @@ macro_rules! add_humanlike_imperfection {
         .header("origin", "https://discord.com")
         .header("pragma", "no-cache")
         .header("user-agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) discord/0.0.309 Chrome/83.0.4103.122 Electron/9.3.5 Safari/537.36")
+    };
+}
+
+macro_rules! delay_rand {
+    ($coeff:expr) => {
+        sleep(Duration::from_secs_f32((
+            rand::thread_rng().sample(rand_distr::StandardNormal) * $coeff
+        )));
     };
 }
 
@@ -46,7 +57,7 @@ pub struct DiscordUser {
     pub discriminator: u16,
     pub avatar: Option<String>,
     pub public_flags: Option<u32>,
-    pub bot: Option<bool>
+    pub bot: Option<bool>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -64,11 +75,15 @@ pub struct DiscordInvite {
 pub struct DiscordClient {
     api_url: &'static str,
     token: String,
+    /// The max delay
+    delay_coeff: f32,
 }
 
 impl DiscordClient {
     pub async fn get_invite_details(&self, invite: &str) -> reqwest::Result<DiscordInvite> {
         let client = reqwest::ClientBuilder::new().build().unwrap();
+
+        delay_rand!(self.delay_coeff);
 
         add_humanlike_imperfection!(client.get(format!("{}/invites/{}", self.api_url, invite)))
             .header("authorization", &self.token)
@@ -80,6 +95,8 @@ impl DiscordClient {
 
     pub async fn join_guild(&self, invite: &str) -> reqwest::Result<()> {
         let client = reqwest::ClientBuilder::new().build().unwrap();
+        delay_rand!(self.delay_coeff);
+
         add_humanlike_imperfection!(client.post(format!("{}/invites/{}", self.api_url, invite)))
             .header("authorization", &self.token)
             .send()
@@ -89,6 +106,7 @@ impl DiscordClient {
 
     pub async fn leave_guild(&self, guild_id: u64) -> reqwest::Result<()> {
         let client = reqwest::ClientBuilder::new().build().unwrap();
+        delay_rand!(self.delay_coeff);
 
         add_humanlike_imperfection!(
             client.delete(format!("{}/users/@me/guilds/{}", self.api_url, guild_id))
@@ -105,6 +123,7 @@ impl DiscordClient {
         content: &str,
     ) -> reqwest::Result<Vec<DiscordMessage>> {
         let client = reqwest::ClientBuilder::new().build().unwrap();
+        delay_rand!(self.delay_coeff);
 
         let response = add_humanlike_imperfection!(client.get(format!(
             "{}/guilds/{}/messages/search?content={}",
@@ -113,13 +132,12 @@ impl DiscordClient {
         .header("authorization", &self.token)
         .send()
         .await?;
-     //   println!("Status: {}\n, {:#?}", response.status(), response.text().await);
+        //   println!("Status: {}\n, {:#?}", response.status(), response.text().await);
 
-
-      //  Ok(vec![])
-       response
+        //  Ok(vec![])
+        response
             .json::<__RawSearchResult>()
-           .await
+            .await
             .map(|raw_result| raw_result.get_results())
     }
 }
@@ -129,6 +147,7 @@ impl Default for DiscordClient {
         Self {
             api_url: "https://discord.com/api/v8",
             token: env::var("DISCORD_TOKEN").expect("Default: DISCORD_TOKEN must be set"),
+            delay_coeff: 10
         }
     }
 }
