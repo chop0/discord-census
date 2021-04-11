@@ -1,13 +1,11 @@
 use super::schema::{guilds, invites};
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, ToPrimitive};
 use diesel::{prelude::*, result::Error};
 use diesel::{PgConnection, Queryable};
 use dotenv::dotenv;
 use std::collections::VecDeque;
 use std::env;
 use std::ops::Deref;
-
-
 
 #[derive(Queryable)]
 pub struct Message {
@@ -47,18 +45,22 @@ pub fn establish_connection() -> PgConnection {
     dotenv().ok();
 
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    PgConnection::establish(&database_url).unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
+    PgConnection::establish(&database_url)
+        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
 }
 
 /// Fetch message from DB by snowflake.
 pub fn fetch_message_by_snowflake<T>(
-    message_snowflake: &BigDecimal,
+    message_snowflake: u64,
     conn: T,
 ) -> Result<Option<Message>, Error>
 where
     T: Deref<Target = PgConnection>,
 {
     use super::schema::messages::dsl::*;
+
+    let message_snowflake = BigDecimal::from(message_snowflake);
+
     messages
         .filter(snowflake.eq(message_snowflake))
         .first::<Message>(&*conn)
@@ -66,14 +68,14 @@ where
 }
 
 /// Fetch guild from DB by snowflake.
-pub fn fetch_guild_by_snowflake<T>(
-    guild_snowflake: &BigDecimal,
-    conn: T,
-) -> Result<Option<Guild>, Error>
+pub fn fetch_guild_by_snowflake<T>(guild_snowflake: u64, conn: T) -> Result<Option<Guild>, Error>
 where
     T: Deref<Target = PgConnection>,
 {
     use super::schema::guilds::dsl::*;
+
+    let guild_snowflake = BigDecimal::from(guild_snowflake);
+
     guilds
         .filter(snowflake.eq(guild_snowflake))
         .first::<Guild>(&*conn)
@@ -81,12 +83,14 @@ where
 }
 
 /// Is this guild in the database ?
-fn guild_in_database<T>(guild_snowflake: &BigDecimal, conn: T) -> Result<bool, Error>
+fn guild_in_database<T>(guild_snowflake: u64, conn: T) -> Result<bool, Error>
 where
     T: Deref<Target = PgConnection>,
 {
     use super::schema::guilds::dsl::*;
     use diesel::dsl::{exists, select};
+
+    let guild_snowflake = BigDecimal::from(guild_snowflake);
 
     Ok(select(exists(guilds.filter(snowflake.eq(guild_snowflake)))).get_result(&*conn)?)
 }
@@ -106,7 +110,7 @@ where
 }
 
 pub fn get_recursion_level_of_message<T>(
-    message_snowflake: &BigDecimal,
+    message_snowflake: u64,
     conn: T,
 ) -> Result<Option<i16>, Error>
 where
@@ -115,7 +119,9 @@ where
     let message = fetch_message_by_snowflake(message_snowflake, &*conn)?;
     if let Some(message) = message {
         if let Some(guild_snowflake) = message.guild_snowflake {
-            let guild = fetch_guild_by_snowflake(&guild_snowflake, &*conn)?.unwrap_or_else(|| {
+            let guild_snowflake = guild_snowflake.to_u64().unwrap();
+
+            let guild = fetch_guild_by_snowflake(guild_snowflake, &*conn)?.unwrap_or_else(|| {
                 panic!(
                     "Invalid parent guild {} for message {}.",
                     guild_snowflake, message_snowflake
@@ -147,7 +153,7 @@ where
 {
     use super::schema::guilds::dsl::*;
 
-    let guild_in_db: bool = guild_in_database(&guild.snowflake, &*conn)?;
+    let guild_in_db: bool = guild_in_database(guild.snowflake.to_u64().unwrap(), &*conn)?;
 
     if guild_in_db {
         Err(Error::AlreadyInTransaction)
@@ -197,23 +203,23 @@ where
 /// Inserts & queues invite code.  Tries to work out if it should be queued by checking whether or not it already exists
 pub fn insert_and_queue_invite_code<T>(
     invite_code: String,
-    origin_message_snowflake: BigDecimal,
-    guild_snowflake: Option<BigDecimal>,
+    origin_message_snowflake: u64,
+    guild_snowflake: Option<u64>,
     conn: T,
 ) -> Result<(), Error>
 where
     T: Deref<Target = PgConnection>,
 {
-    let recursion_level = 1 + get_recursion_level_of_message(&origin_message_snowflake, &*conn)?
-        .unwrap_or_else(|| panic!("Origin message {} not found in database for invite code {}", origin_message_snowflake, invite_code));
+    let recursion_level =
+        1 + get_recursion_level_of_message(origin_message_snowflake, &*conn)?.unwrap_or(0);
 
     let invite_in_database = invite_in_database(&invite_code, &*conn)?;
 
     insert_invite_code(
         Invite {
             invite_code,
-            origin_message_snowflake,
-            guild_snowflake,
+            origin_message_snowflake: BigDecimal::from(origin_message_snowflake),
+            guild_snowflake: guild_snowflake.map(BigDecimal::from),
             queued: !invite_in_database,
             recursion_level,
         },
@@ -228,21 +234,47 @@ where
     T: Deref<Target = PgConnection>,
 {
     use super::schema::invites::dsl;
-    use diesel::dsl::update;
 
-    let invite_selection = dsl::invites
-        .filter(dsl::queued);
+    let invite_selection = dsl::invites.filter(dsl::queued);
 
-    let results = invite_selection
-    .load(&*conn)
-    .map(VecDeque::from)?;
+    let results = invite_selection.load(&*conn).map(VecDeque::from)?;
 
     if !results.is_empty() {
-    println!("{:#?}", &results);
+        println!("{:#?}", &results);
     }
-    update(invite_selection)
-        .set(dsl::queued.eq(false))
-        .execute(&*conn)?;
+    // update(invite_selection)
+    //     .set(dsl::queued.eq(false))
+    //     .execute(&*conn)?;
 
     Ok(results)
+}
+
+pub fn remove_invite_from_queue<T>(invite: &str, conn: T) -> Result<(), Error>
+where
+    T: Deref<Target = PgConnection>,
+{
+    use super::schema::invites::dsl;
+    use diesel::dsl::update;
+
+    update(dsl::invites.filter(dsl::invite_code.eq(invite)))
+        .set(dsl::queued.eq(false))
+        .execute(&*conn)
+        .map(|_| ())
+}
+
+pub fn set_guild_for_invite<T>(
+    invite_code: &str,
+    guild_snowflake: u64,
+    conn: T,
+) -> Result<(), Error>
+where
+    T: Deref<Target = PgConnection>,
+{
+    use super::schema::invites::dsl;
+    use diesel::dsl::update;
+
+    update(dsl::invites.filter(dsl::invite_code.eq(invite_code)))
+        .set(dsl::guild_snowflake.eq(BigDecimal::from(guild_snowflake)))
+        .execute(&*conn)
+        .map(|_| ())
 }

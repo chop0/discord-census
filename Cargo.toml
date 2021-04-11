@@ -7,12 +7,14 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serenity = { path = "serenity", default-features = false, features = ["builder", "cache", "client", "framework", "gateway", "model", "http", "standard_framework", "utils", "rustls_backend"] }
+#serenity = { path = "serenity", default-features = false, features = ["builder", "cache", "client", "framework", "gateway", "model", "http", "standard_framework", "utils", "rustls_backend"] }
 toml = "0.5.8"
-serde = "1.0.125"
+serde = {version = "1.0.125", features = ["derive"]}
 futures = "0.3.13"
 diesel = { version = "1.4.6", features = ["postgres", "numeric", "bigdecimal"] }
 fancy-regex = "0.5.0"
 lazy_static = "1.4.0"
 dotenv = "0.15.0"
 bigdecimal = "0.1.2"
+reqwest = {version = "0.11.2", features = ["json"] }
+tokio = {version = "1.4.0", features = ["full"] }
